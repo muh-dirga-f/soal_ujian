@@ -1,8 +1,11 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:async';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import '../models/ujian_model.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:soal_ujian/models/hasil_ujian_model.dart';
+import 'package:soal_ujian/models/ujian_model.dart';
 import 'ujian_page.dart';
 import 'profile_page.dart';
 
@@ -15,18 +18,15 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   late Future<UjianResponse> ujianResponse;
+  late Future<HasilUjianResponse> hasilUjianResponse;
   Timer? _timer;
   Duration? _duration;
 
   @override
   void initState() {
     super.initState();
-    _loadUserData();
     ujianResponse = fetchUjianData();
-  }
-
-  Future<void> _loadUserData() async {
-    setState(() {});
+    hasilUjianResponse = fetchHasilUjianData();
   }
 
   Future<UjianResponse> fetchUjianData() async {
@@ -44,6 +44,31 @@ class _MyHomePageState extends State<MyHomePage> {
     if (response.statusCode == 200) {
       print(response.body);
       return UjianResponse.fromJson(response.body);
+    } else {
+      throw Exception('Failed to load data');
+    }
+  }
+
+  Future<HasilUjianResponse> fetchHasilUjianData() async {
+    final prefs = await SharedPreferences.getInstance();
+    final apiKey = dotenv.env['API_KEY'];
+    final apiUrl = dotenv.env['API_URL'];
+    final idSiswa = prefs.getString('id_siswa');
+
+    // Get the idUjian from the available ujian or set to 0 if no ujian is available
+    UjianResponse ujianResponse = await fetchUjianData();
+    final idUjian = ujianResponse.dataUjian.isNotEmpty
+        ? ujianResponse.dataUjian.first.idUjian
+        : '0';
+
+    final url =
+        '$apiUrl/data_hasil_ujian/all?X-Api-Key=$apiKey&filter=&field=&start=&limit=&filters[0][co][0][fl]=id_ujian&filters[0][co][0][op]=equal&filters[0][co][0][vl]=$idUjian&filters[0][co][0][lg]=and&filters[0][co][1][fl]=id_siswa&filters[0][co][1][op]=equal&filters[0][co][1][vl]=$idSiswa&filters[0][co][1][lg]=and&sort_field=&sort_order=ASC';
+
+    final response = await http.get(Uri.parse(url));
+
+    if (response.statusCode == 200) {
+      print(response.body);
+      return HasilUjianResponse.fromJson(jsonDecode(response.body));
     } else {
       throw Exception('Failed to load data');
     }
@@ -104,52 +129,71 @@ class _MyHomePageState extends State<MyHomePage> {
         ],
       ),
       body: Center(
-        child: FutureBuilder<UjianResponse>(
-          future: ujianResponse,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
+        child: FutureBuilder<HasilUjianResponse>(
+          future: hasilUjianResponse,
+          builder: (context, hasilSnapshot) {
+            if (hasilSnapshot.connectionState == ConnectionState.waiting) {
               return const CircularProgressIndicator();
-            } else if (snapshot.hasError) {
-              return Text("Error: ${snapshot.error}");
-            } else if (snapshot.hasData) {
-              final ujian = snapshot.data!.dataUjian.isNotEmpty
-                  ? snapshot.data!.dataUjian.first
-                  : null;
-              if (ujian == null) {
-                return const Text("Belum ada ujian");
-              }
+            } else if (hasilSnapshot.hasError) {
+              return Text("Error: ${hasilSnapshot.error}");
+            } else if (hasilSnapshot.hasData) {
+              final hasUjianCompleted =
+                  hasilSnapshot.data!.dataHasilUjian.isNotEmpty;
+              return FutureBuilder<UjianResponse>(
+                future: ujianResponse,
+                builder: (context, ujianSnapshot) {
+                  if (ujianSnapshot.connectionState ==
+                      ConnectionState.waiting) {
+                    return const CircularProgressIndicator();
+                  } else if (ujianSnapshot.hasError) {
+                    return Text("Error: ${ujianSnapshot.error}");
+                  } else if (ujianSnapshot.hasData) {
+                    final ujian = ujianSnapshot.data!.dataUjian.isNotEmpty
+                        ? ujianSnapshot.data!.dataUjian.first
+                        : null;
+                    if (ujian == null) {
+                      return const Text("Belum ada ujian");
+                    }
 
-              final now = DateTime.now();
-              if (now.isAfter(ujian.tanggalMulai) &&
-                  now.isBefore(ujian.tanggalSelesai)) {
-                return ElevatedButton(
-                  onPressed: () {
-                    navigateToUjianPage(context, ujian.idUjian);
-                  },
-                  child: const Text("Mulai Ujian"),
-                );
-              } else if (ujian.tanggalMulai.isAfter(now) &&
-                  ujian.tanggalMulai.day == now.day) {
-                if (_timer == null) {
-                  startTimer(ujian.tanggalMulai);
-                }
-                if (_duration != null && _duration!.inSeconds > 0) {
-                  final hours = _duration!.inHours;
-                  final minutes = _duration!.inMinutes % 60;
-                  final seconds = _duration!.inSeconds % 60;
-                  return Text(
-                      "Ujian dimulai dalam $hours jam $minutes menit $seconds detik");
-                } else {
-                  return ElevatedButton(
-                    onPressed: () {
-                      navigateToUjianPage(context, ujian.idUjian);
-                    },
-                    child: const Text("Mulai Ujian"),
-                  );
-                }
-              } else {
-                return const Text("Belum ada ujian");
-              }
+                    if (hasUjianCompleted) {
+                      return const Text("Ujian telah selesai");
+                    }
+
+                    final now = DateTime.now();
+                    if (now.isAfter(ujian.tanggalMulai) &&
+                        now.isBefore(ujian.tanggalSelesai)) {
+                      return ElevatedButton(
+                        onPressed: () {
+                          navigateToUjianPage(context, ujian.idUjian);
+                        },
+                        child: const Text("Mulai Ujian"),
+                      );
+                    } else if (ujian.tanggalMulai.isAfter(now) &&
+                        ujian.tanggalMulai.day == now.day) {
+                      if (_timer == null) {
+                        startTimer(ujian.tanggalMulai);
+                      }
+                      if (_duration != null && _duration!.inSeconds > 0) {
+                        final hours = _duration!.inHours;
+                        final minutes = _duration!.inMinutes % 60;
+                        final seconds = _duration!.inSeconds % 60;
+                        return Text(
+                            "Ujian dimulai dalam $hours jam $minutes menit $seconds detik");
+                      } else {
+                        return ElevatedButton(
+                          onPressed: () {
+                            navigateToUjianPage(context, ujian.idUjian);
+                          },
+                          child: const Text("Mulai Ujian"),
+                        );
+                      }
+                    } else {
+                      return const Text("Belum ada ujian");
+                    }
+                  }
+                  return const Text("Belum ada ujian");
+                },
+              );
             }
             return const Text("Belum ada ujian");
           },

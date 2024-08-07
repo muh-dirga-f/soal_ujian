@@ -57,6 +57,7 @@ class _LoginPageState extends State<LoginPage> {
     if (user != null) {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('isLoggedIn', true);
+      await prefs.setString('id_siswa', user['id_siswa']);
       await prefs.setString('username', username);
       await prefs.setString('fullname', user['fullname']);
       await prefs.setString('nis', user['nis']);

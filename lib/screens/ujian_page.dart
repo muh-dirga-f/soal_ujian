@@ -3,12 +3,14 @@ import 'package:http/http.dart' as http;
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import '../models/soal_model.dart'; // Import model yang baru kita buat
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
+import '../models/soal_model.dart';
+import 'package:soal_ujian/screens/my_home_page.dart';
 
 class UjianPage extends StatefulWidget {
   final String idUjian;
-
-  const UjianPage({Key? key, required this.idUjian}) : super(key: key);
+  const UjianPage({super.key, required this.idUjian});
 
   @override
   _UjianPageState createState() => _UjianPageState();
@@ -17,6 +19,8 @@ class UjianPage extends StatefulWidget {
 class _UjianPageState extends State<UjianPage> {
   late Future<SoalResponse> soalResponse;
   Map<String, String> selectedAnswers = {};
+  int currentIndex = 0;
+  final _formKey = GlobalKey<FormState>();
 
   @override
   void initState() {
@@ -48,30 +52,80 @@ class _UjianPageState extends State<UjianPage> {
   }
 
   void _simpanJawaban() {
-    int skor = 0;
-    soalResponse.then((response) {
-      response.dataSoal.forEach((soal) {
-        if (selectedAnswers[soal.idSoal] == soal.kunci) {
-          skor++;
+    if (_formKey.currentState!.validate()) {
+      int skor = 0;
+      soalResponse.then((response) {
+        final totalSoal = response.dataSoal.length;
+        for (var soal in response.dataSoal) {
+          if (selectedAnswers[soal.idSoal] == soal.kunci) {
+            skor++;
+          }
         }
+        final hasilSkor = (skor / totalSoal) * 100;
+        _postHasilUjian(hasilSkor.toString(), response.dataAcakSoal.idAcakSoal);
       });
-      _showSkorDialog(skor);
-    });
+    }
   }
 
-  void _showSkorDialog(int skor) {
+  Future<void> _postHasilUjian(String hasilSkor, String idAcakSoal) async {
+    final apiKey = dotenv.env['API_KEY'];
+    final apiUrl = dotenv.env['API_URL'];
+    final prefs = await SharedPreferences.getInstance();
+    final jawaban = selectedAnswers.entries
+        .map((entry) => {'id_soal': entry.key, 'jawaban': entry.value})
+        .toList();
+
+    final url = '${apiUrl!}/data_hasil_ujian/add';
+
+    final request = http.MultipartRequest('POST', Uri.parse(url))
+      ..headers['X-Api-Key'] = apiKey!
+      ..fields['id_ujian'] = widget.idUjian
+      ..fields['id_siswa'] = prefs.getString('id_siswa')!
+      ..fields['id_acakan_soal'] = idAcakSoal
+      ..fields['nilai'] = hasilSkor
+      ..fields['sisa_waktu'] = '0'
+      ..fields['status'] = 'selesai'
+      ..fields['jawaban'] = jsonEncode(jawaban);
+
+    print('URL: $url');
+    print('Headers: Content-Type: multipart/form-data, X-Api-Key: $apiKey');
+    print('Fields: ${request.fields}');
+
+    try {
+      final response = await request.send();
+
+      if (response.statusCode == 200) {
+        _showSkorDialog(hasilSkor);
+      } else {
+        final responseBody = await response.stream.bytesToString();
+        print('Response status: ${response.statusCode}');
+        print('Response body: $responseBody');
+        throw Exception('Failed to submit data');
+      }
+    } catch (e) {
+      print('Error submitting data: $e');
+    }
+  }
+
+  void _showSkorDialog(String hasilSkor) {
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: Text('Skor Anda'),
-          content: Text('Anda mendapatkan skor: $skor'),
+          title: const Text('Hasil Ujian'),
+          content: Text('Nilai Ujian Anda: $hasilSkor'),
           actions: [
             TextButton(
               onPressed: () {
                 Navigator.of(context).pop();
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(
+                      builder: (context) =>
+                          const MyHomePage()), // Ganti dengan halaman Home Anda
+                  (Route<dynamic> route) => false,
+                );
               },
-              child: Text('OK'),
+              child: const Text('OK'),
             ),
           ],
         );
@@ -95,34 +149,41 @@ class _UjianPageState extends State<UjianPage> {
               return Text('Error: ${snapshot.error}');
             } else if (snapshot.hasData) {
               final soalList = snapshot.data!.dataSoal;
-              return Column(
-                children: [
-                  Expanded(
-                    child: ListView.builder(
-                      itemCount: soalList.length,
-                      itemBuilder: (context, index) {
-                        final soal = soalList[index];
-                        return SoalItem(
-                          nomor: index + 1,
-                          soal: soal,
-                          selectedAnswer: selectedAnswers[soal.idSoal],
-                          onSelected: (String value) {
-                            setState(() {
-                              selectedAnswers[soal.idSoal] = value;
-                            });
-                          },
-                        );
-                      },
+              final soal = soalList[currentIndex];
+              return Form(
+                key: _formKey,
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: SoalItem(
+                        nomor: currentIndex + 1,
+                        soal: soal,
+                        selectedAnswer: selectedAnswers[soal.idSoal],
+                        onSelected: (String value) {
+                          setState(() {
+                            selectedAnswers[soal.idSoal] = value;
+                          });
+                        },
+                      ),
                     ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: ElevatedButton(
-                      onPressed: _simpanJawaban,
-                      child: Text('Simpan Jawaban'),
+                    Padding(
+                      padding: const EdgeInsets.all(8.0),
+                      child: currentIndex == soalList.length - 1
+                          ? ElevatedButton(
+                              onPressed: _simpanJawaban,
+                              child: const Text('Simpan Jawaban'),
+                            )
+                          : ElevatedButton(
+                              onPressed: () {
+                                setState(() {
+                                  currentIndex++;
+                                });
+                              },
+                              child: const Text('Soal Selanjutnya'),
+                            ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               );
             }
             return const Text('No data available');
@@ -140,84 +201,88 @@ class SoalItem extends StatelessWidget {
   final Function(String) onSelected;
 
   const SoalItem({
-    Key? key,
+    super.key,
     required this.nomor,
     required this.soal,
     required this.selectedAnswer,
     required this.onSelected,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(8.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Soal $nomor: ${soal.soal}',
-                  style: TextStyle(fontWeight: FontWeight.bold),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                children: [
+                  Text(
+                    'Soal $nomor:',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    soal.mapel,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, color: Colors.blue),
+                  ),
+                ],
+              ),
+              // Menggunakan HtmlWidget untuk render HTML dari soal
+              HtmlWidget(
+                soal.soal,
+                textStyle: const TextStyle(fontSize: 16),
+              ),
+              const SizedBox(height: 10),
+              ListTile(
+                title: Text('A: ${soal.a}'),
+                leading: Radio<String>(
+                  value: 'a',
+                  groupValue: selectedAnswer,
+                  onChanged: (String? value) {
+                    onSelected(value!);
+                  },
                 ),
-                Text(
-                  soal.mapel,
-                  style: TextStyle(
-                      fontWeight: FontWeight.bold, color: Colors.blue),
+                tileColor: selectedAnswer == 'a' ? Colors.blue[100] : null,
+              ),
+              ListTile(
+                title: Text('B: ${soal.b}'),
+                leading: Radio<String>(
+                  value: 'b',
+                  groupValue: selectedAnswer,
+                  onChanged: (String? value) {
+                    onSelected(value!);
+                  },
                 ),
-              ],
-            ),
-            ListTile(
-              title: Text('A: ${soal.a}'),
-              leading: Radio<String>(
-                value: 'a',
-                groupValue: selectedAnswer,
-                onChanged: (String? value) {
-                  onSelected(value!);
-                },
+                tileColor: selectedAnswer == 'b' ? Colors.blue[100] : null,
               ),
-              tileColor: selectedAnswer == 'a' ? Colors.blue[100] : null,
-            ),
-            ListTile(
-              title: Text('B: ${soal.b}'),
-              leading: Radio<String>(
-                value: 'b',
-                groupValue: selectedAnswer,
-                onChanged: (String? value) {
-                  onSelected(value!);
-                },
+              ListTile(
+                title: Text('C: ${soal.c}'),
+                leading: Radio<String>(
+                  value: 'c',
+                  groupValue: selectedAnswer,
+                  onChanged: (String? value) {
+                    onSelected(value!);
+                  },
+                ),
+                tileColor: selectedAnswer == 'c' ? Colors.blue[100] : null,
               ),
-              tileColor: selectedAnswer == 'b' ? Colors.blue[100] : null,
-            ),
-            ListTile(
-              title: Text('C: ${soal.c}'),
-              leading: Radio<String>(
-                value: 'c',
-                groupValue: selectedAnswer,
-                onChanged: (String? value) {
-                  onSelected(value!);
-                },
+              ListTile(
+                title: Text('D: ${soal.d}'),
+                leading: Radio<String>(
+                  value: 'd',
+                  groupValue: selectedAnswer,
+                  onChanged: (String? value) {
+                    onSelected(value!);
+                  },
+                ),
+                tileColor: selectedAnswer == 'd' ? Colors.blue[100] : null,
               ),
-              tileColor: selectedAnswer == 'c' ? Colors.blue[100] : null,
-            ),
-            ListTile(
-              title: Text('D: ${soal.d}'),
-              leading: Radio<String>(
-                value: 'd',
-                groupValue: selectedAnswer,
-                onChanged: (String? value) {
-                  onSelected(value!);
-                },
-              ),
-              tileColor: selectedAnswer == 'd' ? Colors.blue[100] : null,
-            ),
-            Text(
-              'Kunci: ${soal.kunci}',
-              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

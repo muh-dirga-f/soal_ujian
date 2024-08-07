@@ -1,3 +1,29 @@
+class SoalResponse {
+  final List<Soal> dataSoal;
+  final DataAcakSoal dataAcakSoal;
+
+  SoalResponse({required this.dataSoal, required this.dataAcakSoal});
+
+  factory SoalResponse.fromJson(Map<String, dynamic> json) {
+    return SoalResponse(
+      dataSoal: List<Soal>.from(json['data_soal'].map((x) => Soal.fromJson(x))),
+      dataAcakSoal: DataAcakSoal.fromJson(json['data_acak_soal']),
+    );
+  }
+}
+
+class DataAcakSoal {
+  final String idAcakSoal;
+
+  DataAcakSoal({required this.idAcakSoal});
+
+  factory DataAcakSoal.fromJson(Map<String, dynamic> json) {
+    return DataAcakSoal(
+      idAcakSoal: json['id_acak_soal'],
+    );
+  }
+}
+
 class Soal {
   final String idSoal;
   final String mapel;
@@ -29,29 +55,6 @@ class Soal {
       c: json['c'],
       d: json['d'],
       kunci: json['kunci'],
-    );
-  }
-}
-
-class SoalResponse {
-  final bool status;
-  final String message;
-  final List<Soal> dataSoal;
-
-  SoalResponse({
-    required this.status,
-    required this.message,
-    required this.dataSoal,
-  });
-
-  factory SoalResponse.fromJson(Map<String, dynamic> json) {
-    var list = json['data_soal'] as List;
-    List<Soal> soalList = list.map((i) => Soal.fromJson(i)).toList();
-
-    return SoalResponse(
-      status: json['status'],
-      message: json['message'],
-      dataSoal: soalList,
     );
   }
 }
