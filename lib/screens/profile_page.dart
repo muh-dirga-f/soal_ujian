@@ -39,7 +39,6 @@ class ProfilePage extends StatelessWidget {
                   Text('Nama: ${userData['fullname'] ?? 'N/A'}'),
                   Text('NIS: ${userData['nis'] ?? 'N/A'}'),
                   Text('Jenis Kelamin: ${userData['jk'] ?? 'N/A'}'),
-                  Text('Jurusan: ${userData['jurusan'] ?? 'N/A'}'),
                   const SizedBox(height: 20),
                   ElevatedButton(
                     onPressed: () => _logout(context),
@@ -61,7 +60,6 @@ class ProfilePage extends StatelessWidget {
       'fullname': prefs.getString('fullname'),
       'nis': prefs.getString('nis'),
       'jk': prefs.getString('jk'),
-      'jurusan': prefs.getString('jurusan'),
     };
   }
 }

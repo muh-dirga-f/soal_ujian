@@ -62,7 +62,6 @@ class _LoginPageState extends State<LoginPage> {
       await prefs.setString('fullname', user['fullname']);
       await prefs.setString('nis', user['nis']);
       await prefs.setString('jk', user['jk']);
-      await prefs.setString('jurusan', user['jurusan']);
 
       Navigator.pushReplacement(
         context,
